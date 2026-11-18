@@ -1,0 +1,23 @@
+# ============================================================
+# PersistentVolumeClaim para PostgreSQL del proyecto Gimnasio Reservas
+# (volúmenes persistentes)
+#
+# Este PVC solicita 1Gi en modo ReadWriteOnce y se vincula al PV
+# gym-db-pv (storageClassName: manual) para persistir los datos
+# de PostgreSQL aunque el pod se elimine o reinicie.
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gym-db-pvc
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 1Gi

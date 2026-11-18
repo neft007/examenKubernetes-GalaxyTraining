@@ -1,0 +1,23 @@
+# ============================================================
+# Service headless para PostgreSQL (requerido por el StatefulSet)
+#
+# clusterIP: None → headless. Permite que el StatefulSet asigne
+# nombres DNS estables a sus pods: gym-db-0.gym-db.dev.svc.cluster.local
+# La API se conecta usando el nombre corto "gym-db:5432".
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-db
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  clusterIP: None
+  selector:
+    app: gym-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

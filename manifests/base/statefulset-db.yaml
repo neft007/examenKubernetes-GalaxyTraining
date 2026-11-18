@@ -1,0 +1,80 @@
+# ============================================================
+# StatefulSet de PostgreSQL para el proyecto Gimnasio Reservas
+#
+# - StatefulSet: identidad estable para la base de datos
+# - Usa el PVC gym-db-pvc (1Gi) para persistencia
+# - Contraseña desde el Secret gym-db-secret
+# - Service headless gym-db (ClusterIP: None) es requerido por StatefulSet
+# ============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gym-db
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  serviceName: gym-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-db
+  template:
+    metadata:
+      labels:
+        app: gym-db
+        proyecto: gimnasio-reservas
+        componente: base-datos
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: gimnasiodb
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: gym-db-data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d gimnasiodb
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d gimnasiodb
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: gym-db-data
+          persistentVolumeClaim:
+            claimName: gym-db-pvc

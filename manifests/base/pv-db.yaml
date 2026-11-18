@@ -1,0 +1,25 @@
+# ============================================================
+# PersistentVolume para PostgreSQL del proyecto Gimnasio Reservas
+# (volúmenes persistentes)
+#
+# Nota: en Minikube usamos hostPath porque el storage-provisioner
+# por defecto crea PVs dinámicamente, pero aquí declaramos uno
+# explícito para dejar evidencia del objeto PersistentVolume.
+# ============================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gym-db-pv
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/data/gym-db
+    type: DirectoryOrCreate
