@@ -1,0 +1,136 @@
+services:
+  # ============================================================
+  # 1. API Gym-Reservas (Punto 8: Build en caliente)
+  # ============================================================
+  gym-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: neft007/gym-reservas-api:latest
+    container_name: gym-api
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://gym-db:5432/gimnasiodb
+      - SPRING_DATASOURCE_USERNAME=postgres
+    secrets:
+      - db_password
+    networks:
+      - gym-network
+    depends_on:
+      gym-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s   # ✅ Aumentar a 60s para dar tiempo a Spring Boot
+
+  # ============================================================
+  # 2. PostgreSQL
+  # ============================================================
+  gym-db:
+    image: postgres:16-alpine
+    container_name: gym-db
+    environment:
+      - POSTGRES_DB=gimnasiodb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - gym_data:/var/lib/postgresql/data
+    networks:
+      - gym-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gimnasiodb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s   # ✅ Añadir start_period para evitar falsos negativos
+
+  # ============================================================
+  # 3. Adminer
+  # ============================================================
+  gym-adminer:
+    image: adminer:latest
+    container_name: gym-adminer
+    ports:
+      - "8081:8080"
+    networks:
+      - gym-network
+    depends_on:
+      - gym-db
+
+  # ============================================================
+  # 4. Redis
+  # ============================================================
+  gym-redis:
+    image: redis:7-alpine
+    container_name: gym-redis
+    networks:
+      - gym-network
+    volumes:
+      - redis_data:/data
+
+  # ============================================================
+  # 5. Worker
+  # ============================================================
+  gym-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: neft007/gym-reservas-api:latest
+    container_name: gym-worker
+    command: ["java", "-jar", "app.jar", "--spring.profiles.active=worker"]
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://gym-db:5432/gimnasiodb
+      - SPRING_DATASOURCE_USERNAME=postgres
+    secrets:
+      - db_password
+    depends_on:
+      gym-db:
+        condition: service_healthy
+    networks:
+      - gym-network
+
+  # ============================================================
+  # 6. Frontend (HTML/CSS/JS + Nginx como proxy a la API)
+  # ============================================================
+  gym-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: neft007/gym-reservas-frontend:latest
+    container_name: gym-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - API_HOST=gym-api
+      - API_PORT=8080
+    networks:
+      - gym-network
+    # Sin depends_on: el front es independiente y arranca aunque la API no esté
+
+# ============================================================
+# Redes
+# ============================================================
+networks:
+  gym-network:
+    driver: bridge
+
+# ============================================================
+# Volúmenes
+# ============================================================
+volumes:
+  gym_data:
+  redis_data:
+
+# ============================================================
+# Secretos
+# ============================================================
+secrets:
+  db_password:
+    file: ./db_password.txt

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gimnasio - Reservas</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>🏋️ Gimnasio · Sistema de Reservas</h1>
+    <span id="api-status" class="badge">Comprobando API...</span>
+  </header>
+
+  <main>
+    <!-- US01: Registrar socio -->
+    <section class="card">
+      <h2>1. Registrar socio</h2>
+      <form id="form-socio">
+        <input name="dni" placeholder="DNI (8 dígitos)" pattern="\d{8}" required>
+        <input name="nombre" placeholder="Nombre" minlength="3" maxlength="100" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <button type="submit">Registrar</button>
+      </form>
+    </section>
+
+    <!-- US02: Crear clase -->
+    <section class="card">
+      <h2>2. Crear clase</h2>
+      <form id="form-clase">
+        <input name="nombre" placeholder="Nombre de la clase" minlength="3" maxlength="100" required>
+        <input name="instructor" placeholder="Instructor" minlength="3" maxlength="100" required>
+        <label>Fecha y hora de inicio
+          <input name="fechaInicio" type="datetime-local" required>
+        </label>
+        <input name="duracionMinutos" type="number" min="1" max="180" placeholder="Duración (min)" required>
+        <input name="aforoMaximo" type="number" min="1" max="50" placeholder="Aforo máximo" required>
+        <button type="submit">Crear clase</button>
+      </form>
+    </section>
+
+    <!-- US03: Reservar plaza -->
+    <section class="card">
+      <h2>3. Reservar plaza</h2>
+      <form id="form-reserva">
+        <select name="socioId" class="sel-socio" required></select>
+        <select name="claseId" class="sel-clase" required></select>
+        <button type="submit">Reservar</button>
+      </form>
+    </section>
+
+    <!-- US05: Disponibilidad -->
+    <section class="card">
+      <h2>4. Disponibilidad de clase</h2>
+      <form id="form-disponibilidad">
+        <select name="claseId" class="sel-clase" required></select>
+        <button type="submit">Consultar</button>
+      </form>
+    </section>
+
+    <!-- US05 + US04: Reservas del socio / cancelar -->
+    <section class="card wide">
+      <h2>5. Reservas de un socio</h2>
+      <form id="form-reservas-socio">
+        <select name="socioId" class="sel-socio" required></select>
+        <select name="estado">
+          <option value="">Todos los estados</option>
+          <option value="CONFIRMADA">CONFIRMADA</option>
+          <option value="CANCELADA">CANCELADA</option>
+        </select>
+        <button type="submit">Buscar</button>
+      </form>
+      <table>
+        <thead>
+          <tr><th>Reserva</th><th>Clase</th><th>Fecha reserva</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody id="tabla-reservas"></tbody>
+      </table>
+    </section>
+
+    <!-- Consola de respuestas -->
+    <section class="card wide">
+      <h2>Respuesta de la API</h2>
+      <pre id="output">—</pre>
+    </section>
+  </main>
+
+  <footer>Frontend servido por Nginx en contenedor Docker · API en <code>/api/v1</code></footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

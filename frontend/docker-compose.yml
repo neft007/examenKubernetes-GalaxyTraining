@@ -1,0 +1,22 @@
+# ============================================================
+# Frontend standalone: se levanta por separado y se une a la red
+# del backend (gym-network), que ya debe existir.
+#   docker compose -f frontend/docker-compose.yml up -d --build
+# ============================================================
+services:
+  gym-frontend:
+    build: .
+    image: neft007/gym-reservas-frontend:latest
+    container_name: gym-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - API_HOST=gym-api
+      - API_PORT=8080
+    networks:
+      - gym-network
+
+networks:
+  gym-network:
+    external: true
+    name: gimnasio-reservas_docker_gym-network

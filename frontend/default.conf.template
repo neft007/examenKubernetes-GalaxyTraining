@@ -1,0 +1,30 @@
+# Plantilla: la imagen oficial de nginx sustituye ${API_HOST} y ${API_PORT}
+# con variables de entorno al arrancar (envsubst) y genera conf.d/default.conf.
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # DNS interno de Docker. Al usar una variable en proxy_pass, el nombre del
+    # backend se resuelve en cada petición y no al arrancar: así el front
+    # funciona aunque la API todavía no exista (devuelve 502 hasta que aparezca).
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $backend ${API_HOST}:${API_PORT};
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://$backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /actuator/health {
+        proxy_pass http://$backend;
+    }
+}
