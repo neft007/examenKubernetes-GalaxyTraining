@@ -1,0 +1,24 @@
+# ============================================================
+# Service LoadBalancer para la API Gym-Reservas
+# (Services: LoadBalancer)
+#
+# En Minikube, la IP externa se asigna con: minikube tunnel
+# (dejar el proceso corriendo en otra terminal).
+# En AWS EKS, este Service crearía un ELB/ALB real automáticamente.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-api-lb
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+spec:
+  type: LoadBalancer
+  selector:
+    app: gym-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
