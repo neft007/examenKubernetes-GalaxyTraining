@@ -1,0 +1,26 @@
+# ============================================================
+# Namespaces para los 3 ambientes del proyecto Gimnasio Reservas
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    ambiente: dev
+    proyecto: gimnasio-reservas
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qa
+  labels:
+    ambiente: qa
+    proyecto: gimnasio-reservas
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    ambiente: prod
+    proyecto: gimnasio-reservas
