@@ -1,0 +1,19 @@
+# ============================================================
+# ConfigMap para la API Gym-Reservas (configuración no sensible)
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gym-api-config
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+data:
+  # Conexión a PostgreSQL (host = nombre del Service de la BD)
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://gym-db:5432/gimnasiodb"
+  SPRING_DATASOURCE_USERNAME: "postgres"
+  # Hibernate: crear/actualizar tablas al arrancar
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  # Swagger
+  SPRINGDOC_SWAGGER_UI_URL: "/gimnasio-openapi.yaml"
