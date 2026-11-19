@@ -1,0 +1,40 @@
+# ============================================================
+# Deployment del Frontend Gym-Reservas
+#
+# Imagen Nginx con los archivos estáticos del frontend.
+# El enrutamiento /api → API se hará vía Ingress (no en Nginx).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-frontend
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-frontend
+  template:
+    metadata:
+      labels:
+        app: gym-frontend
+        proyecto: gimnasio-reservas
+        componente: frontend
+    spec:
+      containers:
+        - name: gym-frontend
+          image: neft007/gym-reservas-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

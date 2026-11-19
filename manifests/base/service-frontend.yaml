@@ -1,0 +1,22 @@
+# ============================================================
+# Service ClusterIP para el Frontend
+#
+# Expone el frontend internamente en el puerto 80.
+# El acceso externo se hará vía Ingress (gym-ingress).
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-frontend-service
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: gym-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
