@@ -1,0 +1,47 @@
+# ============================================================
+# Deployment del Worker de Gym-Reservas
+#
+# Usa la MISMA imagen que la API, pero con el perfil "worker"
+# para diferenciar el comportamiento (procesamiento en segundo plano).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-worker
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-worker
+  template:
+    metadata:
+      labels:
+        app: gym-worker
+        proyecto: gimnasio-reservas
+        componente: worker
+    spec:
+      containers:
+        - name: gym-worker
+          image: neft007/gym-reservas-api:latest
+          imagePullPolicy: Always
+          args: ["--spring.profiles.active=worker"]
+          envFrom:
+            - configMapRef:
+                name: gym-api-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

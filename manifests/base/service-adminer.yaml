@@ -1,0 +1,23 @@
+# ============================================================
+# Service NodePort para Adminer
+#
+# Expone Adminer en el puerto 30081 del nodo.
+# Acceso desde el host: minikube service gym-adminer -n dev --url
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-adminer
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: adminer
+spec:
+  type: NodePort
+  selector:
+    app: gym-adminer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081

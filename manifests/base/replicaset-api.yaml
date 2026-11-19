@@ -1,0 +1,54 @@
+# ============================================================
+# ReplicaSet explícito para la API Gym-Reservas
+# (ReplicaSet)
+#
+# ReplicaSet adicional (no reemplaza al Deployment gym-api).
+# Sirve para demostrar la creación y gestión directa de un
+# ReplicaSet con su propio Service y escalado.
+# Selector propio (app: gym-api-rs) para no solaparse con el Deployment.
+# ============================================================
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: gym-api-rs
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+    tipo: replicaset
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gym-api-rs
+  template:
+    metadata:
+      labels:
+        app: gym-api-rs
+        proyecto: gimnasio-reservas
+        componente: api
+        tipo: replicaset
+    spec:
+      containers:
+        - name: gym-api
+          image: neft007/gym-reservas-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gym-api-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi

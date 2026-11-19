@@ -1,0 +1,39 @@
+# ============================================================
+# Deployment de Redis para Gym-Reservas
+#
+# Redis 7 Alpine como caché en memoria.
+# No usa PVC porque es caché volátil (se puede perder al reiniciar).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-redis
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-redis
+  template:
+    metadata:
+      labels:
+        app: gym-redis
+        proyecto: gimnasio-reservas
+        componente: cache
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
