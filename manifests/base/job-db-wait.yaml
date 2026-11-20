@@ -1,0 +1,41 @@
+# ============================================================
+# Job de inicialización: esperar a que PostgreSQL esté listo
+#
+# Ejecuta pg_isready en bucle hasta que la BD acepte conexiones.
+# Simula una "tarea de arranque" antes de que la API empiece a usarla.
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gym-db-wait
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        proyecto: gimnasio-reservas
+        componente: base-datos
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: db-wait
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              echo "Esperando a que PostgreSQL esté listo..."
+              for i in $(seq 1 30); do
+                if pg_isready -h gym-db -p 5432 -U postgres -d gimnasiodb; then
+                  echo "✅ PostgreSQL está listo (intento $i)"
+                  exit 0
+                fi
+                echo "⏳ Intento $i/30: PostgreSQL no responde, reintentando en 5s..."
+                sleep 5
+              done
+              echo "❌ PostgreSQL no respondió después de 30 intentos"
+              exit 1

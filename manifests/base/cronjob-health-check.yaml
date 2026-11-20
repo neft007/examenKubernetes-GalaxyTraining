@@ -1,0 +1,44 @@
+# ============================================================
+# CronJob: verificación periódica de la salud de la API
+#
+# Cada 5 minutos hace curl a /actuator/health de la API.
+# Si no responde UP, el Job falla y queda registrado.
+# ============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gym-health-check
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: monitoreo
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            proyecto: gimnasio-reservas
+            componente: monitoreo
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: health-check
+              image: curlimages/curl:8.10.1
+              command:
+                - sh
+                - -c
+                - |
+                  echo "Verificando salud de la API..."
+                  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://gym-api-nodeport.dev.svc.cluster.local:8080/actuator/health)
+                  if [ "$RESPONSE" = "200" ]; then
+                    echo "✅ API responde HTTP $RESPONSE"
+                    exit 0
+                  else
+                    echo "❌ API respondió HTTP $RESPONSE"
+                    exit 1
+                  fi
