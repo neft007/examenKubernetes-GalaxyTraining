@@ -1,0 +1,835 @@
+---
+# ============================================================
+# Namespaces para los 3 ambientes del proyecto Gimnasio Reservas
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    ambiente: dev
+    proyecto: gimnasio-reservas
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qa
+  labels:
+    ambiente: qa
+    proyecto: gimnasio-reservas
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    ambiente: prod
+    proyecto: gimnasio-reservas
+
+---
+# ============================================================
+# Secret para PostgreSQL del proyecto Gimnasio Reservas
+#
+# ⚠️ NO subir la contraseña real a Git.
+# Para crear el Secret en el clúster, usar el comando imperativo:
+#   kubectl create secret generic gym-db-secret \
+#     --from-literal=POSTGRES_PASSWORD='<TU_PASSWORD>' \
+#     --from-literal=SPRING_DATASOURCE_PASSWORD='<TU_PASSWORD>' \
+#     -n dev
+#
+# O bien, reemplazar el placeholder y aplicar este manifiesto:
+#   kubectl apply -f manifests/base/secret-db.yaml
+# ============================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gym-db-secret
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "REEMPLAZAR_CON_PASSWORD_REAL"
+  SPRING_DATASOURCE_PASSWORD: "REEMPLAZAR_CON_PASSWORD_REAL"
+
+---
+# ============================================================
+# ConfigMap para la API Gym-Reservas (configuración no sensible)
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gym-api-config
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+data:
+  # Conexión a PostgreSQL (host = nombre del Service de la BD)
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://gym-db:5432/gimnasiodb"
+  SPRING_DATASOURCE_USERNAME: "postgres"
+  # Hibernate: crear/actualizar tablas al arrancar
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  # Swagger
+  SPRINGDOC_SWAGGER_UI_URL: "/gimnasio-openapi.yaml"
+
+---
+# ============================================================
+# PersistentVolume para PostgreSQL del proyecto Gimnasio Reservas
+# (volúmenes persistentes)
+#
+# Nota: en Minikube usamos hostPath porque el storage-provisioner
+# por defecto crea PVs dinámicamente, pero aquí declaramos uno
+# explícito para dejar evidencia del objeto PersistentVolume.
+# ============================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gym-db-pv
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/data/gym-db
+    type: DirectoryOrCreate
+
+---
+# ============================================================
+# PersistentVolumeClaim para PostgreSQL del proyecto Gimnasio Reservas
+# (volúmenes persistentes)
+#
+# Este PVC solicita 1Gi en modo ReadWriteOnce y se vincula al PV
+# gym-db-pv (storageClassName: manual) para persistir los datos
+# de PostgreSQL aunque el pod se elimine o reinicie.
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gym-db-pvc
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# ============================================================
+# StatefulSet de PostgreSQL para el proyecto Gimnasio Reservas
+#
+# - StatefulSet: identidad estable para la base de datos
+# - Usa el PVC gym-db-pvc (1Gi) para persistencia
+# - Contraseña desde el Secret gym-db-secret
+# - Service headless gym-db (ClusterIP: None) es requerido por StatefulSet
+# ============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gym-db
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  serviceName: gym-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-db
+  template:
+    metadata:
+      labels:
+        app: gym-db
+        proyecto: gimnasio-reservas
+        componente: base-datos
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: gimnasiodb
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: gym-db-data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d gimnasiodb
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d gimnasiodb
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: gym-db-data
+          persistentVolumeClaim:
+            claimName: gym-db-pvc
+
+---
+# ============================================================
+# Service headless para PostgreSQL (requerido por el StatefulSet)
+#
+# clusterIP: None → headless. Permite que el StatefulSet asigne
+# nombres DNS estables a sus pods: gym-db-0.gym-db.dev.svc.cluster.local
+# La API se conecta usando el nombre corto "gym-db:5432".
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-db
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  clusterIP: None
+  selector:
+    app: gym-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+
+---
+# ============================================================
+# Deployment de la API Gym-Reservas
+#
+# - 2 réplicas para alta disponibilidad
+# - ConfigMap gym-api-config → variables no sensibles
+# - Secret gym-db-secret → contraseña de la BD
+# - readinessProbe y livenessProbe contra /actuator/health
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-api
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gym-api
+  template:
+    metadata:
+      labels:
+        app: gym-api
+        proyecto: gimnasio-reservas
+        componente: api
+    spec:
+      containers:
+        - name: gym-api
+          image: neft007/gym-reservas-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: gym-api-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+
+---
+# ============================================================
+# Service NodePort para la API Gym-Reservas
+# (Services: NodePort)
+#
+# Expone la API en un puerto del rango 30000-32767 en cada nodo.
+# En Minikube se accede vía:
+#   minikube service gym-api-nodeport -n dev --url
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-api-nodeport
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+spec:
+  type: NodePort
+  selector:
+    app: gym-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+
+---
+# ============================================================
+# Service LoadBalancer para la API Gym-Reservas
+# (Services: LoadBalancer)
+#
+# En Minikube, la IP externa se asigna con: minikube tunnel
+# (dejar el proceso corriendo en otra terminal).
+# En AWS EKS, este Service crearía un ELB/ALB real automáticamente.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-api-lb
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+spec:
+  type: LoadBalancer
+  selector:
+    app: gym-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+---
+# ============================================================
+# Deployment del Worker de Gym-Reservas
+#
+# Usa la MISMA imagen que la API, pero con el perfil "worker"
+# para diferenciar el comportamiento (procesamiento en segundo plano).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-worker
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-worker
+  template:
+    metadata:
+      labels:
+        app: gym-worker
+        proyecto: gimnasio-reservas
+        componente: worker
+    spec:
+      containers:
+        - name: gym-worker
+          image: neft007/gym-reservas-api:latest
+          imagePullPolicy: Always
+          args: ["--spring.profiles.active=worker"]
+          envFrom:
+            - configMapRef:
+                name: gym-api-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+---
+# ============================================================
+# Deployment de Redis para Gym-Reservas
+#
+# Redis 7 Alpine como caché en memoria.
+# No usa PVC porque es caché volátil (se puede perder al reiniciar).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-redis
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-redis
+  template:
+    metadata:
+      labels:
+        app: gym-redis
+        proyecto: gimnasio-reservas
+        componente: cache
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+# ============================================================
+# Service ClusterIP para Redis
+#
+# Accesible internamente como gym-redis:6379
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-redis
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: gym-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+# ============================================================
+# Deployment de Adminer para Gym-Reservas
+#
+# GUI web para administrar PostgreSQL.
+# Se expone vía NodePort (30081) para acceso desde el host.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-adminer
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: adminer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-adminer
+  template:
+    metadata:
+      labels:
+        app: gym-adminer
+        proyecto: gimnasio-reservas
+        componente: adminer
+    spec:
+      containers:
+        - name: adminer
+          image: adminer:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ADMINER_DEFAULT_SERVER
+              value: gym-db
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+# ============================================================
+# Service NodePort para Adminer
+#
+# Expone Adminer en el puerto 30081 del nodo.
+# Acceso desde el host: minikube service gym-adminer -n dev --url
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-adminer
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: adminer
+spec:
+  type: NodePort
+  selector:
+    app: gym-adminer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081
+
+---
+# ============================================================
+# ReplicaSet explícito para la API Gym-Reservas
+# (ReplicaSet)
+#
+# ReplicaSet adicional (no reemplaza al Deployment gym-api).
+# Sirve para demostrar la creación y gestión directa de un
+# ReplicaSet con su propio Service y escalado.
+# Selector propio (app: gym-api-rs) para no solaparse con el Deployment.
+# ============================================================
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: gym-api-rs
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+    tipo: replicaset
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gym-api-rs
+  template:
+    metadata:
+      labels:
+        app: gym-api-rs
+        proyecto: gimnasio-reservas
+        componente: api
+        tipo: replicaset
+    spec:
+      containers:
+        - name: gym-api
+          image: neft007/gym-reservas-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gym-api-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gym-db-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+
+---
+# ============================================================
+# Service NodePort para el ReplicaSet gym-api-rs
+#
+# Service relacionado al ReplicaSet explícito.
+# Acceso: minikube service gym-api-rs -n dev --url
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-api-rs
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: api
+    tipo: replicaset
+spec:
+  type: NodePort
+  selector:
+    app: gym-api-rs
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30082
+
+---
+# ============================================================
+# Deployment del Frontend Gym-Reservas
+#
+# Imagen Nginx con los archivos estáticos del frontend.
+# El enrutamiento /api → API se hará vía Ingress (no en Nginx).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gym-frontend
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gym-frontend
+  template:
+    metadata:
+      labels:
+        app: gym-frontend
+        proyecto: gimnasio-reservas
+        componente: frontend
+    spec:
+      containers:
+        - name: gym-frontend
+          image: neft007/gym-reservas-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+# ============================================================
+# Service ClusterIP para el Frontend
+#
+# Expone el frontend internamente en el puerto 80.
+# El acceso externo se hará vía Ingress (gym-ingress).
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gym-frontend-service
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: gym-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+
+---
+# ============================================================
+# Ingress para Gym-Reservas
+#
+# Enruta:
+#   /           → gym-frontend-service:80
+#   /api        → gym-api-nodeport:8080
+#   /actuator   → gym-api-nodeport:8080
+#
+# Requiere el addon ingress de Minikube:
+#   minikube addons enable ingress
+#
+# Acceso desde el host:
+#   http://<minikube-ip>/         (frontend)
+#   http://<minikube-ip>/api/v1/... (API)
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gym-ingress
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: gym.local
+      http:
+        paths:
+          # API REST
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gym-api-nodeport
+                port:
+                  number: 8080
+          # Actuator (health check del frontend)
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: gym-api-nodeport
+                port:
+                  number: 8080
+          # Frontend (catch-all, debe ir al final)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gym-frontend-service
+                port:
+                  number: 80
+
+---
+# ============================================================
+# Job de inicialización: esperar a que PostgreSQL esté listo
+#
+# Ejecuta pg_isready en bucle hasta que la BD acepte conexiones.
+# Simula una "tarea de arranque" antes de que la API empiece a usarla.
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gym-db-wait
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: base-datos
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        proyecto: gimnasio-reservas
+        componente: base-datos
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: db-wait
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              echo "Esperando a que PostgreSQL esté listo..."
+              for i in $(seq 1 30); do
+                if pg_isready -h gym-db -p 5432 -U postgres -d gimnasiodb; then
+                  echo "✅ PostgreSQL está listo (intento $i)"
+                  exit 0
+                fi
+                echo "⏳ Intento $i/30: PostgreSQL no responde, reintentando en 5s..."
+                sleep 5
+              done
+              echo "❌ PostgreSQL no respondió después de 30 intentos"
+              exit 1
+
+---
+# ============================================================
+# CronJob: verificación periódica de la salud de la API
+#
+# Cada 5 minutos hace curl a /actuator/health de la API.
+# Si no responde UP, el Job falla y queda registrado.
+# ============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gym-health-check
+  namespace: dev
+  labels:
+    proyecto: gimnasio-reservas
+    componente: monitoreo
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            proyecto: gimnasio-reservas
+            componente: monitoreo
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: health-check
+              image: curlimages/curl:8.10.1
+              command:
+                - sh
+                - -c
+                - |
+                  echo "Verificando salud de la API..."
+                  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://gym-api-nodeport.dev.svc.cluster.local:8080/actuator/health)
+                  if [ "$RESPONSE" = "200" ]; then
+                    echo "✅ API responde HTTP $RESPONSE"
+                    exit 0
+                  else
+                    echo "❌ API respondió HTTP $RESPONSE"
+                    exit 1
+                  fi
+
