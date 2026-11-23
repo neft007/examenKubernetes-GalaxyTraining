@@ -1,137 +1,164 @@
-# 🏋️ Gimnasio Reservas - API + Frontend + Docker
+# ☸️ Gimnasio Reservas - Kubernetes
 
-Sistema de reservas para gimnasio con API REST (Spring Boot), Frontend (React/HTML) y base de datos PostgreSQL, todo dockerizado con Docker Compose.
+Despliegue completo del sistema de reservas para gimnasio en **Kubernetes**, usando **Minikube** para desarrollo local y **AWS EKS** como objetivo de despliegue en la nube.
 
-## 🚀 Stack Tecnológico
+## 🚀 Stack tecnológico
 
-- **Backend:** Java 17 + Spring Boot 4.1.1
-- **Frontend:** React (o HTML/JS) servido con Nginx
-- **Base de Datos:** PostgreSQL 16 (Alpine)
+- **Orquestación:** Kubernetes (v1.37 en local)
+- **Backend:** Java 17 + Spring Boot (API + Worker)
+- **Frontend:** Nginx (React/HTML)
+- **Base de datos:** PostgreSQL 16 (Alpine) con PersistentVolume
 - **Caché:** Redis 7 (Alpine)
-- **Administración BD:** Adminer
-- **Contenedores:** Docker + Docker Compose
-- **Registros:** Docker Hub + GitHub Container Registry
+- **Administración de BD:** Adminer
+- **Herramientas locales:** Minikube, kubectl, eksctl, AWS CLI
+- **Nube:** AWS EKS (pendiente de validación de cuenta)
 
-## 🏗️ Arquitectura
+## 🏗️ Arquitectura en Kubernetes
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│                     Red: gym-network (bridge)                    │
-│                                                                  │
-│  ┌──────────────┐     ┌───────────────┐     ┌──────────────┐     │
-│  │   Frontend   │────▶│      API      │────▶│  PostgreSQL  │     │
-│  │   (Nginx)    │     │ (Spring Boot) │     │     (16)     │     │
-│  │    :3000     │     │ :8080, :9090  │     │    :5432     │     │
-│  └──────────────┘     └───────┬───────┘     └──────┬───────┘     │
-│                               │                    │             │
-│                       ┌───────┴───────┐     ┌──────┴───────┐     │
-│                       │    Worker     │     │   Adminer    │     │
-│                       │ (Spring Boot) │     │   (GUI BD)   │     │
-│                       └───────────────┘     └──────────────┘     │
-│                                                                  │
-│                       ┌───────────────┐                          │
-│                       │     Redis     │                          │
-│                       │    (Caché)    │                          │
-│                       └───────────────┘                          │
-└──────────────────────────────────────────────────────────────────┘
+                       ┌───────────────────────────────┐
+                       │        INGRESS (Nginx)        │
+                       │    gym.local (dev) · qa · prod│
+                       └──────────────┬────────────────┘
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              │                                               │
+     ┌────────▼────────┐                             ┌────────▼────────┐
+     │  Frontend Svc   │                             │    API Svc      │
+     │  (ClusterIP)    │                             │  (NodePort/LB)  │
+     └────────┬────────┘                             └────────┬────────┘
+              │                                               │
+     ┌────────▼────────┐                             ┌────────▼────────┐
+     │   Deployment    │                             │   Deployment    │
+     │    Frontend     │                             │    API (x2)     │
+     └─────────────────┘                             └────────┬────────┘
+                                                              │
+                                                     ┌────────▼────────┐
+                                                     │  StatefulSet    │
+                                                     │  PostgreSQL     │
+                                                     │  (PVC 1Gi)      │
+                                                     └─────────────────┘
 ```
 
-## 📋 Requisitos
+## 📂 Estructura del repositorio
 
-- Docker Engine 24+
-- Docker Compose v2+
-- (Opcional) Docker Scout para escaneo de seguridad
+```text
+examenKubernetes-GalaxyTraining/
+├── all-in-one/               # Despliegue unificado (dev, qa, prod)
+├── evidencias/k8s/           # Capturas y documento de sustentación
+├── manifests/                # Manifiestos individuales
+│   └── base/                 # Todos los recursos base
+├── src/                      # Código fuente (API + Worker)
+├── frontend/                 # Código del frontend
+├── eks-cluster.yaml          # Configuración del clúster AWS EKS
+├── KUBERNETES-CHEATSHEET.md  # Hoja de ayuda personalizada
+└── README.md
+```
 
-## 🚀 Cómo levantar el proyecto
+## 🚀 Cómo levantar el proyecto (local con Minikube)
 
-### 1. Clonar el repositorio
+### 1. Iniciar Minikube
 
 ```bash
-git clone https://github.com/neft007/examenDocker-GalaxyTraining.git
-cd examenDocker-GalaxyTraining
+# --cni=calico es necesario para que las NetworkPolicy se apliquen realmente
+minikube start --driver=docker --cpus=2 --memory=4096 --cni=calico
+minikube addons enable ingress
+minikube addons enable metrics-server
 ```
 
-### 2. Crear el archivo de secreto
+### 2. Desplegar el entorno (ej. dev)
 
 ```bash
-printf "GymPass2024!" > db_password.txt
+# Crear los namespaces (si no existen)
+kubectl apply -f manifests/base/namespaces.yaml
+
+# Crear el Secret de la BD de forma imperativa (no se versiona en el repo)
+kubectl create secret generic gym-db-secret \
+  --from-literal=POSTGRES_PASSWORD='<tu-password>' \
+  --from-literal=SPRING_DATASOURCE_PASSWORD='<tu-password>' \
+  -n dev
+
+# Desplegar todo el stack con el archivo unificado
+kubectl apply -f all-in-one/all-in-one-dev.yaml
 ```
 
-### 3. Levantar el stack
+### 3. Verificar que todo esté corriendo
 
 ```bash
-docker compose up -d --build
+kubectl get pods -n dev
+kubectl get services -n dev
 ```
 
-### 4. Verificar que todo está corriendo
+### 4. Acceder a la aplicación
+
+Primero obtén la IP de Minikube y agrégala a `/etc/hosts`:
 
 ```bash
-docker compose ps
+minikube ip                                    # normalmente 192.168.49.2
+echo "$(minikube ip) gym.local" | sudo tee -a /etc/hosts
 ```
 
-Deberías ver 6 contenedores:
+| Servicio | URL |
+|---|---|
+| Frontend | http://gym.local |
+| API Health | http://gym.local/actuator/health |
+| Adminer (GUI de BD) | http://192.168.49.2:30081 |
 
-| Contenedor     | Servicio              | Estado esperado |
-|----------------|-----------------------|-----------------|
-| `gym-db`       | PostgreSQL            | healthy         |
-| `gym-redis`    | Redis                 | running         |
-| `gym-api`      | API Spring Boot       | healthy         |
-| `gym-worker`   | Worker Spring Boot    | running         |
-| `gym-adminer`  | GUI de base de datos  | running         |
-| `gym-frontend` | Frontend Nginx        | running         |
+> 💡 En macOS o Windows con el driver `docker`, la IP de Minikube no es accesible directamente: ejecuta `minikube tunnel` en otra terminal y usa `127.0.0.1` en `/etc/hosts`.
 
-### 5. Acceder a los servicios
+## ☁️ Despliegue en AWS EKS
 
-| Servicio    | URL                                     | Descripción          |
-|-------------|-----------------------------------------|----------------------|
-| Frontend    | <http://localhost:3000>                 | Interfaz de usuario  |
-| API         | <http://localhost:8080>                 | API REST             |
-| Swagger UI  | <http://localhost:8080/swagger-ui.html> | Documentación API    |
-| Adminer     | <http://localhost:8081>                 | GUI de base de datos |
-| Healthcheck | <http://localhost:8080/actuator/health> | Estado de la API     |
+El archivo `eks-cluster.yaml` contiene la configuración para crear un clúster EKS con 2 nodos `t3.micro` en la región `us-east-2`.
+
+```bash
+# Crear el clúster
+eksctl create cluster -f eks-cluster.yaml
+
+# Configurar kubectl para apuntar al clúster
+aws eks update-kubeconfig --name gym-cluster --region us-east-2
+
+# Desplegar el entorno de producción
+kubectl apply -f all-in-one/all-in-one-prod.yaml
+```
+
+> ⚠️ **Nota:** El despliegue en AWS quedó bloqueado por una verificación de identidad de la cuenta. El manifiesto y los logs del intento están documentados en `evidencias/k8s/`.
 
 ## 🔒 Seguridad
 
-- ✅ **Usuario no-root:** el contenedor corre como `appuser` (no root).
-- ✅ **Multi-stage build:** imagen final solo con JRE + JAR (sin Maven).
-- ✅ **Secretos:** contraseña de BD en Docker Secrets (`/run/secrets/db_password`).
-- ✅ **Red interna:** la BD no expone puertos al host.
-- ✅ **Healthchecks:** detección temprana de fallos.
-- ✅ **Docker Scout:** escaneo de vulnerabilidades.
-
-## 📦 Imágenes publicadas
-
-- **Docker Hub:** [`neft007/gym-reservas-api`](https://hub.docker.com/r/neft007/gym-reservas-api)
-- **GitHub Container Registry:** [`ghcr.io/neft007/gym-reservas-api`](https://github.com/neft007/examenDocker-GalaxyTraining/pkgs/container/gym-reservas-api)
+- ✅ **Secrets:** contraseñas gestionadas con un Secret de Kubernetes, creado fuera del repositorio.
+- ✅ **NetworkPolicy:** aislamiento de la BD (solo la API puede conectarse).
+- ✅ **Usuario no-root:** imágenes de Docker configuradas con `appuser`.
+- ✅ **Probes:** `readinessProbe` y `livenessProbe` en la API y la BD.
 
 ## 🧪 Comandos útiles
 
 ```bash
+# Ver todos los recursos del proyecto
+kubectl get all -n dev
+
 # Ver logs de la API
-docker compose logs -f gym-api
+kubectl logs -f -n dev -l app=gym-api
 
-# Verificar comunicación entre contenedores
-docker exec -it gym-api ping -c 2 gym-db
+# Escalar la API manualmente
+kubectl scale deployment gym-api --replicas=4 -n dev
 
-# Escanear vulnerabilidades
-docker scout quickview neft007/gym-reservas-api:latest
+# Ver el estado del HPA (escalado automático)
+kubectl get hpa -n dev
 
-# Bajar el stack (mantiene volúmenes)
-docker compose down
-
-# Bajar y eliminar volúmenes
-docker compose down -v
+# Destruir un entorno completo
+kubectl delete -f all-in-one/all-in-one-dev.yaml
+kubectl delete secret gym-db-secret -n dev   # el Secret se creó aparte
 ```
 
 ## 📄 Documentación adicional
 
-- Docker Cheat Sheet
-- Evidencias de sustentación
+- [Kubernetes Cheat Sheet](KUBERNETES-CHEATSHEET.md)
+- [Evidencias de sustentación](evidencias/k8s/)
 
 ## 👤 Autor
 
-**Neftalí** - [@neft007](https://github.com/neft007)
+**Neftalí** – [@neft007](https://github.com/neft007)
 
 ## 📅 Fecha
 
-Noviembre 2026 - Examen Final Docker & Docker Compose - Galaxy Training
+Noviembre 2026 – Examen Final *Kubernetes for Developers* – Galaxy Training
